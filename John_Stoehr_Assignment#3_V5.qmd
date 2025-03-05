@@ -1,0 +1,181 @@
+---
+title: "John_Stoehr_Assignment#3"
+format: pdf
+editor: visual
+execute: 
+  echo: false
+  warning: false
+---
+
+```{r, include=FALSE}
+library(tidyverse)
+library(sf)
+library(leaflet)
+library(ggspatial)
+```
+
+```{r,include=FALSE}
+setwd("C:/Users/jstoe/OneDrive/Documents/Homework 3 Data/Food_Dessert_Data")
+orange_durham_wake_block_groups <- st_read("orange_durham_wake_block_groups.shp") %>% 
+  st_transform(orange_durham_wake_block_groups, crs = 32617)
+
+triangle_supermarkets <- st_read("triangle_supermarkets_osm.shp") %>%
+  st_transform(triangle_supermarkets, crs = 32617)
+
+triangle_highways <- st_read("triangle_highways_osm.shp") %>% 
+  st_transform(triangle_highways, crs = 32617)
+
+triangle_census <- read_csv("triangle_census.csv")
+```
+
+# Map Showing Food Deserts and Supermarkets
+
+```{r}
+setwd("C:/Users/jstoe/OneDrive/Documents/Homework 3 Data/Food_Dessert_Data")
+
+orange_durham_wake_block_groups <- orange_durham_wake_block_groups %>% 
+  mutate(buffered_area = st_buffer(geometry, dist = 150))
+
+supermarkets_distance <- st_distance(orange_durham_wake_block_groups$geometry, triangle_supermarkets)
+
+orange_durham_wake_block_groups$min_dist_to_supermarket <- apply(supermarkets_distance, 1, min)
+
+orange_durham_wake_block_groups <- orange_durham_wake_block_groups %>%
+  mutate(food_desert = min_dist_to_supermarket > 1609)
+
+triangle_major_roads <- triangle_highways %>% 
+  filter(highway %in% c("primary","motorway")) %>% 
+  group_by(name) %>% 
+  summarize(geometry = st_union(geometry))
+
+selected_major_roads <- triangle_major_roads %>% 
+  filter(name %in% c("9th Street", "I 40 West"))
+
+map_of_food_deserts <- ggplot() +
+  geom_sf(data = triangle_highways, color = "gray", size = 0.3) +
+  geom_sf(data = orange_durham_wake_block_groups, aes(fill = food_desert), alpha = 0.5) +
+  geom_sf(data = triangle_supermarkets, color = "red", size = 2) +
+  scale_fill_manual(values = c("FALSE" = "lightgreen", "TRUE" = "red"),
+                    name = "Food Desert",
+                    labels = c("No", "Yes")) +
+  coord_sf() +
+  annotation_scale(location = "bl", width_hint = 0.3) +
+  annotation_north_arrow(location = "tl", which_north = "true",
+                         style = north_arrow_fancy_orienteering()) +
+  labs(title = "Food Deserts in Wake County",
+       caption = "Figure 1") +
+  theme_minimal()
+
+map_of_food_deserts <- map_of_food_deserts +
+  geom_sf_label(data = selected_major_roads, aes(label = name), 
+                size = 3, color = "black", fill = "white")
+
+map_of_food_deserts
+```
+
+# Food Deserts In Only Wake County
+
+```{r}
+setwd("C:/Users/jstoe/OneDrive/Documents/Homework 3 Data/Food_Dessert_Data")
+
+wake_county_only <- orange_durham_wake_block_groups %>% 
+  filter(COUNTYFP == "183")
+
+wake_county_food_deserts <- ggplot() +
+  geom_sf(data = wake_county_only, aes(fill = food_desert), alpha = 0.5) +
+  scale_fill_manual(values = c("FALSE" = "lightgreen", "TRUE" = "red"),
+                    name = "Food Desert",
+                    labels = c("No", "Yes")) +
+  coord_sf() +
+  annotation_scale(location = "bl", width_hint = 0.3) +
+  annotation_north_arrow(location = "tl", which_north = "true",
+                         style = north_arrow_fancy_orienteering()) +
+  labs(title = "Food Deserts in Wake County",
+       caption = "Figure 2") +
+  theme_minimal()
+
+wake_county_food_deserts
+```
+
+# Percentage of Population In Food Deserts
+
+```{r}
+setwd("C:/Users/jstoe/OneDrive/Documents/Homework 3 Data/Food_Dessert_Data")
+
+triangle_census <- triangle_census %>% 
+  mutate(GEOID = as.character(GEOID))
+wake_county_only <- wake_county_only %>% 
+  mutate(GEOID = as.character(GEOID))
+
+wake_county_census <- wake_county_only %>% 
+  left_join(triangle_census, by = "GEOID")
+
+wake_population <- sum(wake_county_census$total_population, na.rm = T)
+wake_food_desert_population <- sum(wake_county_census$total_population[wake_county_census$food_desert], na.rm = T)
+wake_food_desert_percentage <- (wake_food_desert_population/wake_population) *100
+
+print(paste("The percentage of Wake Forest in a food desert is", round(wake_food_desert_percentage,2), "%"))
+```
+
+# Low Income and Zero Vehicle Households
+
+```{r}
+setwd("C:/Users/jstoe/OneDrive/Documents/Homework 3 Data/Food_Dessert_Data")
+
+#All of Wake County
+wake_county_no_vehicle <- sum(wake_county_census$zero_vehicle_households, na.rm = T)
+wake_county_total_households <- sum(wake_county_census$total_households, na.rm = T)
+no_vehicle_percentage <- (wake_county_no_vehicle/wake_county_total_households)*100
+
+  #Food Deserts in Wake County
+wake_county_no_vehicle_food_desert <- sum(wake_county_census$zero_vehicle_households[wake_county_census$food_desert], na.rm = T)
+wake_county_total_households_food_deserts <- sum(wake_county_census$total_households[wake_county_census$food_desert], na.rm = T)
+no_vehicle_percentage_food_deserts <- (wake_county_no_vehicle_food_desert/wake_county_total_households_food_deserts)*100
+
+
+#Low Income Households in Wake County
+wake_county_low_income <- sum(wake_county_census$households_income_less_than_35k, na.rm = T)
+low_income_percentage <- (wake_county_low_income/wake_county_total_households) *100
+
+
+#Low Income Households in Food Deserts
+wake_county_low_income_food_deserts <- sum(wake_county_census$households_income_less_than_35k[wake_county_census$food_desert], na.rm = T)
+low_income_percentage_food_desert <- (wake_county_low_income_food_deserts/wake_county_total_households_food_deserts)*100
+
+
+print(paste("The percentage of Wake Forest households with no vehicle is", round(no_vehicle_percentage,2), "%"))
+print(paste("The percentage of Wake Forest households in food deserts with no vehicle is", round(no_vehicle_percentage_food_deserts,2), "%"))
+print(paste("The percentage of Wake Forest households who are considered low-income is", round(low_income_percentage,2), "%"))
+print(paste("The percentage of Wake Forest households in food deserts considered low-income is", round(low_income_percentage_food_desert,2), "%"))
+
+```
+
+# Where Should a Supermarket Be Placed?
+
+```{r}
+setwd("C:/Users/jstoe/OneDrive/Documents/Homework 3 Data/Food_Dessert_Data")
+
+new_supermarket <- wake_county_census %>%
+  filter(food_desert == TRUE) %>%
+  arrange(desc(households_income_less_than_35k /total_households), desc(zero_vehicle_households/total_households)) %>% 
+  head(1)
+
+new_supermarket_percentage <- (new_supermarket$households_income_less_than_35k/new_supermarket$total_households)
+
+map_priority_location <- ggplot() +
+  geom_sf(data = wake_county_census, aes(fill = food_desert), alpha = 0.5) +
+  geom_sf(data = new_supermarket, color = "blue",fill = "black", size = 10000, shape = 21) +
+  scale_fill_manual(values = c("FALSE" = "lightgreen", "TRUE" = "red"),
+                    name = "Food Desert",
+                    labels = c("No", "Yes")) +
+  coord_sf() +
+  annotation_scale(location = "bl", width_hint = 0.3) +
+  annotation_north_arrow(location = "tl", which_north = "true",
+                         style = north_arrow_fancy_orienteering()) +
+  labs(title = "New Supermarket in Wake County",
+       subtitle = "Blue marker indicates the recommended site",
+       caption = "Figure 3") +
+  theme_minimal()
+
+map_priority_location
+```
